@@ -1,42 +1,51 @@
 <!DOCTYPE html>
 <html lang="en">
+
+<script async src="https://docs.opencv.org/4.5.5/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Agentic Image Editor</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css">
+  
+
 </head>
 <body>
-  <div class="chatbot-popup">
-    <div class="chat-header">Chatbot - Image Editor</div>
-    <div class="chat-body" id="chatBody">
-      <div class="message">
-        <div class="avatar">🤖</div>
-        <div class="bubble">Hey there<br />How can I help u with your image?</div>
-      </div>
-
-      <div class="form-control">
-        <label for="imageInput">Upload Image</label>
-        <input type="file" id="imageInput" accept="image/*" />
-      </div>
-
-      <div class="form-control">
-        <label for="promptInput">Your Prompt</label>
-        <textarea id="promptInput" rows="3" placeholder="e.g. blur the image "></textarea>
-      </div>
-
-      <canvas id="imageCanvas"></canvas>
-    </div>
-
-    <div class="chat-footer">
-        <button onclick="submitImage()">Submit</button>
-        <button onclick="showAvailableTools()">Available Tools</button>
-        <div style="display: flex; gap: 10px;">
-          <button style="flex: 1;" onclick="downloadPNG()">Download PNG</button>
-          <button style="flex: 1;" onclick="downloadPDF()">Download PDF</button>
+  <div class="main-container">
+    <!-- Chatbot -->
+    <div class="chatbot-popup">
+      <div class="chat-header">Chatbot - Image Editor</div>
+      <div class="chat-body" id="chatBody">
+        <div class="message">
+          <div class="avatar">🤖</div>
+          <div class="bubble">Hey there<br />How can I help you with your image?</div>
+        </div>
+        <div class="form-control">
+          <label for="imageInput">Upload Image</label>
+          <input type="file" id="imageInput" accept="image/*" />
+        </div>
+        <div class="form-control">
+          <label for="promptInput">Your Prompt</label>
+          <textarea id="promptInput" rows="3" placeholder="e.g. blur the image"></textarea>
         </div>
       </div>
+      <div class="chat-footer">
+        <button onclick="submitImage()">Submit</button>
+        <button onclick="showAvailableTools()">Available Tools</button>
+      </div>
     </div>
+
+    <!-- Canvas Editor -->
+    <div id="canvas-container">
+      <canvas id="imageCanvas"></canvas>
+      <div class="download-buttons">
+        <button onclick="downloadPNG()">Download PNG</button>
+        <button onclick="downloadPDF()">Download PDF</button>
+        
+      </div>
+    </div>
+  </div>
 
   <script src="script.js"></script>
 </body>
