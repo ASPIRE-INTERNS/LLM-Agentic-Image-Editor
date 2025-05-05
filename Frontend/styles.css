@@ -5,8 +5,16 @@ body {
     min-height: 100vh;
     background: linear-gradient(to bottom, #e4e0ff, #8a89f7);
     font-family: Arial, sans-serif;
+    margin: 0;
   }
-  
+  .main-container {
+    display: flex;
+    gap: 30px;
+    align-items: flex-start;
+    padding: 20px;
+    max-width: 1200px;
+    width: 100%;
+  }
   .chatbot-popup {
     width: 400px;
     background: white;
@@ -15,8 +23,8 @@ body {
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    flex-shrink: 0;
   }
-  
   .chat-header {
     background: #6a5acd;
     padding: 16px;
@@ -24,21 +32,20 @@ body {
     font-weight: bold;
     font-size: 18px;
   }
-  
   .chat-body {
     flex: 1;
     padding: 20px;
     display: flex;
     flex-direction: column;
     gap: 15px;
+    overflow-y: auto;
+    max-height: 500px;
   }
-  
   .message {
     display: flex;
     align-items: flex-start;
     gap: 10px;
   }
-  
   .avatar {
     width: 30px;
     height: 30px;
@@ -50,7 +57,6 @@ body {
     color: white;
     font-size: 14px;
   }
-  
   .bubble {
     background: #a295f9;
     padding: 10px 14px;
@@ -58,26 +64,17 @@ body {
     max-width: 75%;
     font-size: 14px;
   }
-  
   .form-control {
     display: flex;
     flex-direction: column;
     margin: 10px 0;
   }
-  
   input[type="file"], textarea {
     width: 100%;
     padding: 10px;
     border-radius: 10px;
     border: 1px solid #ccc;
   }
-  
-  canvas {
-    width: 100%;
-    border-radius: 10px;
-    border: 1px dashed #aaa;
-  }
-  
   .chat-footer {
     display: flex;
     flex-direction: column;
@@ -86,7 +83,6 @@ body {
     border-top: 1px solid #eee;
     background: #fafafa;
   }
-  
   button {
     padding: 10px;
     border: none;
@@ -96,15 +92,74 @@ body {
     font-weight: bold;
     cursor: pointer;
   }
-  
   button.option-btn {
     font-size: 12px;
     padding: 6px 10px;
+    margin-right: 5px;
     background: #e0dcff;
     color: #333;
   }
-  
   button:hover {
     background: #a295f9;
   }
+  #canvas-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+    flex: 1;
+  }
+  #imageCanvas {
+    border: 2px dashed #aaa;
+    border-radius: 12px;
+    background: white;
+    max-width: 600px;
+    max-height: 600px;
+    width: 100%;
+    height: auto;
+  }
+
+  .tool-buttons-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 4px;
+  }
+
+
+  /* Tool button styling */
+.tool-buttons-grid button {
+  background-color: #8675fa; /* green background */
+  color: white;              /* white text */
+  border: none;
+  padding: 4px 10px;
+  margin: 6px 8px 0 0;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background-color 0.2s ease;
+}
+
+.tool-buttons-grid button:hover {
+  background-color: #2272fb;
+}
+
+  
+  
+  .download-buttons {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+    justify-content: center;
+  }
+  .download-buttons button:nth-child(1),
+  .download-buttons button:nth-child(2) {
+    background: #2256ff; 
+    color: white;
+  }
+  .download-buttons button:hover {
+    opacity: 0.8;
+  }
+
+
   
