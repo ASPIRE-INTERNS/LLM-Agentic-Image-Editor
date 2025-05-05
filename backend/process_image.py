@@ -96,10 +96,6 @@ for op in operations:
         img_cv = cv2.Canny(gray, 100, 200)
         print("Applied Canny edge detection", file=sys.stderr)
 
-    elif op_type in ["negative", "inversion"]:
-        img_cv = cv2.bitwise_not(img_cv)
-        print("Applied negative", file=sys.stderr)
-
 
     elif op_type == "grayscale":
         img_cv = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
