@@ -6,6 +6,7 @@ let imageHistory = [];
 let appliedOperations = new Map();
 let lastToolMessage = null;
 
+
 document.getElementById("imageInput").addEventListener("change", (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -24,7 +25,7 @@ document.getElementById("imageInput").addEventListener("change", (e) => {
   };
   img.src = URL.createObjectURL(file);
 });
-
+//display 
 function updateCanvas(mat) {
   let imgData = new ImageData(new Uint8ClampedArray(mat.data), mat.cols, mat.rows);
   ctx.putImageData(imgData, 0, 0);
