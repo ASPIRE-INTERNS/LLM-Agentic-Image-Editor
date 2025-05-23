@@ -1,16 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
 
-<script async src="https://docs.opencv.org/4.5.5/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
-
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Agentic Image Editor</title>
-  <link rel="stylesheet" href="styles.css">
-  
-
+  <link rel="stylesheet" href="styles.css" />
 </head>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
 <body>
   <div class="main-container">
     <!-- Chatbot -->
@@ -19,34 +17,152 @@
       <div class="chat-body" id="chatBody">
         <div class="message">
           <div class="avatar">🤖</div>
-          <div class="bubble">Hey there<br />How can I help you with your image?</div>
+          <div class="bubble">Hey there!<br />Upload an image, type a prompt or use the tools below.</div>
         </div>
+
+        <!-- Image Upload -->
         <div class="form-control">
           <label for="imageInput">Upload Image</label>
           <input type="file" id="imageInput" accept="image/*" />
         </div>
+
+        <!-- Prompt Input -->
         <div class="form-control">
           <label for="promptInput">Your Prompt</label>
-          <textarea id="promptInput" rows="3" placeholder="e.g. blur the image"></textarea>
+          <textarea id="promptInput" rows="3" placeholder="e.g. flip horizontally or apply high blur"></textarea>
         </div>
-      </div>
-      <div class="chat-footer">
-        <button onclick="submitImage()">Submit</button>
-        <button onclick="showAvailableTools()">Available Tools</button>
+
+        <!-- Tools Section -->
+        <div class="form-control">
+          <label>Available Tools</label>
+
+          <!-- Main Tools Row -->
+          <div class="tools-group" id="mainTools">
+            <button class="tool-toggle" onclick="showSubTools('blurOptions')">Blur</button>
+            <button class="tool-toggle" onclick="showSubTools('brightnessOptions')">Brightness</button>
+            <button class="tool-toggle" onclick="showSubTools('contrastOptions')">Contrast</button>
+            <button class="tool-toggle" onclick="showSubTools('flipOptions')">Flip</button>
+            <button class="tool-toggle" onclick="showSubTools('grayscaleOptions')">Grayscale</button>
+            <button class="tool-toggle" onclick="showSubTools('sharpenOptions')">Sharpen</button>
+            <button class="tool-toggle" onclick="showSubTools('freehandBlurOptions')">Freehand Blur</button>
+            <button class="tool-toggle" onclick="showSubTools('cannyOptions')">Canny Edge</button>
+            <button class="tool-toggle" onclick="showSubTools('sobelOptions')">Sobel Edge</button>
+            <button class="tool-toggle" onclick="showSubTools('sketchOptions')">Pencil Sketch</button>
+
+          </div>
+
+          <!-- Sub Tools -->
+          <div id="blurOptions" class="sub-options" style="display:none;">
+            <button class="sub-option-button" onclick="applyOperation({ type: 'blur', intensity: 'low' })">Low</button>
+            <button class="sub-option-button" onclick="applyOperation({ type: 'blur', intensity: 'medium' })">Medium</button>
+            <button class="sub-option-button" onclick="applyOperation({ type: 'blur', intensity: 'high' })">High</button>
+            <button class="sub-option-button" onclick="clearSingleOperation('blur')">Clear</button>
+            <button class="sub-option-button" onclick="goBackToMainTools()">Back</button>
+          </div>
+
+          <div id="grayscaleOptions" class="sub-options" style="display:none;">
+            <button class="sub-option-button" onclick="applyOperation({ type: 'grayscale' })">Apply</button>
+            <button class="sub-option-button" onclick="clearSingleOperation('grayscale')">Clear</button>
+            <button class="sub-option-button" onclick="goBackToMainTools()">Back</button>
+          </div>
+
+          <div id="sharpenOptions" class="sub-options" style="display:none;">
+            <button class="sub-option-button" onclick="applyOperation({ type: 'sharpen' })">Apply</button>
+            <button class="sub-option-button" onclick="clearSingleOperation('sharpen')">Clear</button>
+            <button class="sub-option-button" onclick="goBackToMainTools()">Back</button>
+          </div>
+
+          <div id="brightnessOptions" class="sub-options" style="display:none;">
+            <button class="sub-option-button" onclick="applyOperation({ type: 'brightness', intensity: 'low' })">Low</button>
+            <button class="sub-option-button" onclick="applyOperation({ type: 'brightness', intensity: 'medium' })">Medium</button>
+            <button class="sub-option-button" onclick="applyOperation({ type: 'brightness', intensity: 'high' })">High</button>
+            <button class="sub-option-button" onclick="clearSingleOperation('brightness')">Clear</button>
+            <button class="sub-option-button" onclick="goBackToMainTools()">Back</button>
+          </div>
+
+          <div id="contrastOptions" class="sub-options" style="display:none;">
+            <button class="sub-option-button" onclick="applyOperation({ type: 'contrast', intensity: 'low' })">Low</button>
+            <button class="sub-option-button" onclick="applyOperation({ type: 'contrast', intensity: 'medium' })">Medium</button>
+            <button class="sub-option-button" onclick="applyOperation({ type: 'contrast', intensity: 'high' })">High</button>
+            <button class="sub-option-button" onclick="clearSingleOperation('contrast')">Clear</button>
+            <button class="sub-option-button" onclick="goBackToMainTools()">Back</button>
+          </div>
+
+          <div id="flipOptions" class="sub-options" style="display:none;">
+            <button class="sub-option-button" onclick="applyOperation({ type: 'flip', direction: 'horizontal' })">Horizontal</button>
+            <button class="sub-option-button" onclick="applyOperation({ type: 'flip', direction: 'vertical' })">Vertical</button>
+            <button class="sub-option-button" onclick="clearSingleOperation('flip')">Clear</button>
+            <button class="sub-option-button" onclick="goBackToMainTools()">Back</button>
+          </div>
+
+          <div id="freehandBlurOptions" class="sub-options" style="display:none;">
+            <button class="sub-option-button" onclick="toggleFreehandBlur()">Start/Stop Drawing</button>
+            
+            <button class="sub-option-button" onclick="clearFreehandMask()">Clear</button>
+            <button class="sub-option-button" onclick="goBackToMainTools()">Back</button>
+          </div>
+
+          <div id="cannyOptions" class="sub-options" style="display:none;">
+            <button class="sub-option-button" onclick="applyOperation({ type: 'canny' })">Apply</button>
+            <button class="sub-option-button" onclick="clearSingleOperation('canny')">Clear</button>
+            <button class="sub-option-button" onclick="goBackToMainTools()">Back</button>
+          </div>
+
+          <div id="sobelOptions" class="sub-options" style="display:none;">
+            <button class="sub-option-button" onclick="applyOperation({ type: 'sobel' })">Apply</button>
+            <button class="sub-option-button" onclick="clearSingleOperation('sobel')">Clear</button>
+            <button class="sub-option-button" onclick="goBackToMainTools()">Back</button>
+          </div>
+
+          <div id="sketchOptions" class="sub-options" style="display:none;">
+            <button class="sub-option-button" onclick="applyOperation({ type: 'sketch' })">Apply</button>
+            <button class="sub-option-button" onclick="clearSingleOperation('sketch')">Clear</button>
+            <button class="sub-option-button" onclick="goBackToMainTools()">Back</button>
+          </div>
+
+        </div>
+
+        <!-- Submit Prompt -->
+        <div class="chat-footer">
+          <button onclick="submitPrompt()">Submit Prompt</button>
+        </div>
       </div>
     </div>
 
-    <!-- Canvas Editor -->
+    <!-- Canvas Area -->
     <div id="canvas-container">
       <canvas id="imageCanvas"></canvas>
       <div class="download-buttons">
         <button onclick="downloadPNG()">Download PNG</button>
         <button onclick="downloadPDF()">Download PDF</button>
         
+
       </div>
     </div>
   </div>
 
-  <script src="script.js"></script>
+  <!-- Scripts -->
+  <script async src="https://docs.opencv.org/4.5.5/opencv.js" onload="onOpenCvReady()" type="text/javascript"></script>
+  <script>
+    function showSubTools(id) {
+      document.getElementById("mainTools").style.display = "none";
+      const subToolDivs = document.querySelectorAll('.sub-options');
+      subToolDivs.forEach(div => div.style.display = "none");
+      document.getElementById(id).style.display = "flex";
+    }
+
+    function goBackToMainTools() {
+      const subToolDivs = document.querySelectorAll('.sub-options');
+      subToolDivs.forEach(div => div.style.display = "none");
+      document.getElementById("mainTools").style.display = "flex";
+    }
+  </script>
+  <script src="initialization.js" defer></script>
+  <script src="ui.js" defer></script>
+  
+  <script src="download.js" defer></script>
+
+
 </body>
+
 </html>
