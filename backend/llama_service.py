@@ -1,12 +1,12 @@
 # llama_service.py
-
+import sys
 import requests
 import json
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL_NAME = "llama3.2"
 
-def query_llama(prompt: str) -> str:
+def query_llama(prompt: str, history: str) -> str:
     payload = {
         "model": MODEL_NAME,
         "prompt": f"""You are an image editor assistant.
@@ -40,6 +40,10 @@ Clarifications:
 - "blur", "background_blur", "background_removal", "pencil_sketch", "color_pencil_sketch", and "cartoon" are all distinct types.
 - "negative", "invert", "inversion", and "color_invert" are all the same operation — use type: "negative".
 
+
+Already applied operations:
+{history}
+
 Now, user prompt:
 '{prompt}'
 
@@ -51,17 +55,18 @@ Output:
     try:
         response = requests.post(OLLAMA_URL, json=payload)
         response.raise_for_status()
-        raw_response = response.json().get("response", None)
-
-        # Extract clean JSON from model's response
+        raw_response = response.json().get("response", "")
         start_idx = raw_response.find('{')
         end_idx = raw_response.rfind('}') + 1
         json_response = raw_response[start_idx:end_idx]
         return json_response
 
     except Exception as e:
-        print("Error querying Llama:", e)
+        print("Error querying LLaMA:", e)
         return json.dumps({"operations": [{"type": "none"}]})
-    
-    
-    
+
+if __name__ == "__main__":
+    prompt = sys.argv[1]
+    history = sys.argv[2] if len(sys.argv) > 2 else "{}"
+    output = query_llama(prompt, history)
+    print(output)
