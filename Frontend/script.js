@@ -1,13 +1,23 @@
+// ... Existing declarations unchanged ...
 let canvas = document.getElementById("imageCanvas");
 let ctx = canvas.getContext("2d");
 let originalMat = null;
 let currentMat = null;
 let imageHistory = [];
 let appliedOperations = new Map();
-let lastToolMessage = null;
 
+let cvReady = false;
+let freehandBlurActive = false;
+let drawing = false;
+let blurMask = null;
+let preBlurSnapshot = null;
 
-document.getElementById("imageInput").addEventListener("change", (e) => {
+function onOpenCvReady() {
+  cvReady = true;
+  appendMessage("🤖", " Please upload an image.");
+}
+
+document.getElementById("imageInput").addEventListener("change", async (e) => {
   const file = e.target.files[0];
   if (!file) return;
 
@@ -16,16 +26,93 @@ document.getElementById("imageInput").addEventListener("change", (e) => {
     canvas.width = img.width;
     canvas.height = img.height;
     ctx.drawImage(img, 0, 0);
-    let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     originalMat = cv.matFromImageData(imgData);
+    currentMat?.delete();
     currentMat = originalMat.clone();
     imageHistory = [currentMat.clone()];
     appliedOperations.clear();
     appendMessage("🤖", "✅ Image uploaded.");
+    initBlurMask();
   };
   img.src = URL.createObjectURL(file);
 });
-//display 
+
+function initBlurMask() {
+  if (blurMask) blurMask.delete();           //selecting the points to blur
+  blurMask = new cv.Mat.zeros(canvas.height, canvas.width, cv.CV_8UC1);
+}
+
+// --- Canvas Drawing Events ---
+canvas.addEventListener("mousedown", (e) => {
+  if (!freehandBlurActive || !originalMat) return;
+  drawing = true;
+  drawOnMask(e);
+});
+canvas.addEventListener("mousemove", (e) => {
+  if (!drawing || !freehandBlurActive) return;
+  drawOnMask(e);
+});
+canvas.addEventListener("mouseup", async () => {
+  if (!freehandBlurActive || !drawing) return;
+  drawing = false;
+  await applyFreehandBlur();
+});
+canvas.addEventListener("mouseleave", () => {
+  if (!freehandBlurActive || !drawing) return;
+  drawing = false;
+});
+
+// --- Draw to Blur ---
+function drawOnMask(e) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const x = Math.round((e.clientX - rect.left) * scaleX);
+  const y = Math.round((e.clientY - rect.top) * scaleY);
+
+  cv.circle(blurMask, new cv.Point(x, y), 15, new cv.Scalar(255), -1);
+  ctx.beginPath();
+  ctx.arc(x, y, 15, 0, 2 * Math.PI);
+  ctx.fillStyle = "rgba(0,0,255,0.2)";
+  ctx.fill();
+}
+
+async function applyFreehandBlur() {
+  if (!originalMat || !blurMask) return;
+  if (!preBlurSnapshot) preBlurSnapshot = currentMat.clone();
+
+  let blurred = new cv.Mat();
+  cv.GaussianBlur(currentMat, blurred, new cv.Size(21, 21), 0);
+
+  let result = new cv.Mat();
+  let invertedMask = new cv.Mat();
+  cv.bitwise_not(blurMask, invertedMask);
+
+  let fg = new cv.Mat();
+  let bg = new cv.Mat();
+  cv.bitwise_and(currentMat, currentMat, fg, invertedMask);
+  cv.bitwise_and(blurred, blurred, bg, blurMask);
+  cv.add(fg, bg, result);
+
+  currentMat.delete();
+  currentMat = result;
+
+  fg.delete(); bg.delete(); blurred.delete(); invertedMask.delete();
+  blurMask.setTo(new cv.Scalar(0));
+
+  updateCanvas(currentMat);
+  appliedOperations.set("freehandBlur", true);
+  saveState();
+  appendMessage("🤖", "Freehand blur applied.");
+}
+
+function toggleFreehandBlur() {
+  if (!originalMat) return alert("Upload an image first.");
+  freehandBlurActive = !freehandBlurActive;
+  appendMessage("🤖", `Freehand blur ${freehandBlurActive ? "enabled" : "disabled"}.`);
+}
+
 function updateCanvas(mat) {
   let imgData = new ImageData(new Uint8ClampedArray(mat.data), mat.cols, mat.rows);
   ctx.putImageData(imgData, 0, 0);
@@ -35,276 +122,372 @@ function saveState() {
   imageHistory.push(currentMat.clone());
 }
 
-function handleOperation(op, level, applyFn, onReturnToMenu) {
-  if (appliedOperations.has(op)) {
-    const appliedLevel = appliedOperations.get(op);
-    appendWarningMessage(`⚠️ <b>${op} - ${appliedLevel}</b> already applied. Please clear it first to change.`);
-    return;
+// --- Image Operations ---
+function applyBlur(intensity = "medium") {
+  let ksize;
+  switch (intensity) {
+    case "low": ksize = new cv.Size(3, 3); break;
+    case "medium": ksize = new cv.Size(7, 7); break;
+    case "high": ksize = new cv.Size(15, 15); break;
+    default: ksize = new cv.Size(7, 7);
   }
-
-  applyFn();
-  saveState();
-  appliedOperations.set(op, level);
-  appendMessage("🤖", `✅ ${op} (${level}) applied.`);
-  if (onReturnToMenu) onReturnToMenu();
-}
-
-function clearOperation(op, onReturnToMenu) {
-  if (appliedOperations.has(op)) {
-    appliedOperations.delete(op);
-    recomputeImage();
-    appendMessage("🤖", `🧹 ${op} has been cleared.`);
-  } else {
-    appendMessage("🤖", `❌ ${op} is not applied.`);
-  }
-  if (onReturnToMenu) onReturnToMenu();
-}
-
-function recomputeImage() {
-  if (!originalMat) return;
-  currentMat = originalMat.clone();
-  for (let [op, level] of appliedOperations.entries()) {
-    switch (op) {
-      case "blur":
-        applyBlur(getBlurKernel(level));
-        break;
-      case "contrast":
-        applyContrast(getContrastAlpha(level));
-        break;
-      case "brightness":
-        applyBrightness(getBrightnessBeta(level));
-        break;
-      case "sharpen":
-        applySharpen(getSharpenStrength(level));
-        break;
-      case "flipH":
-        applyFlip(1);
-        break;
-      case "flipV":
-        applyFlip(0);
-        break;
-      case "canny":
-        applyCanny();
-        break;
-      case "grayscale":
-        applyGrayscale();
-        break;
-    }
-  }
-  updateCanvas(currentMat);
-  saveState();
-}
-
-function showAvailableTools() {
-  appendMessage("🤖", "Choose a tool:", [
-    { label: "Blur", action: showBlurOptions },
-    { label: "Contrast", action: showContrastOptions },
-    { label: "Brightness", action: showBrightnessOptions },
-    { label: "Sharpen", action: showSharpenOptions },
-    { label: "Flip", action: showFlipOptions },
-    { label: "Canny Edge", action: showCannyOptions },
-    { label: "Grayscale", action: showGrayscaleOptions }
-  ]);
-}
-
-// ----------- TOOL OPTIONS -----------
-
-function showBlurOptions() {
-  appendMessage("🤖", "Blur Levels:", [
-    { label: "Low", action: () => handleOperation("blur", "Low", () => applyBlur(5), showBlurOptions) },
-    { label: "Medium", action: () => handleOperation("blur", "Medium", () => applyBlur(15), showBlurOptions) },
-    { label: "High", action: () => handleOperation("blur", "High", () => applyBlur(25), showBlurOptions) },
-    { label: "❌ Clear", action: () => clearOperation("blur", showBlurOptions) },
-    { label: "🔙 Back", action: showAvailableTools }
-  ]);
-}
-function getBlurKernel(level) {
-  return level === "Low" ? 5 : level === "Medium" ? 15 : 25;
-}
-function applyBlur(ksize) {
   let dst = new cv.Mat();
-  cv.GaussianBlur(currentMat, dst, new cv.Size(ksize, ksize), 0, 0);
+  cv.GaussianBlur(currentMat, dst, ksize, 0, 0, cv.BORDER_DEFAULT);
+  currentMat.delete();
   currentMat = dst;
-  updateCanvas(currentMat);
 }
 
-function showContrastOptions() {
-  appendMessage("🤖", "Contrast Levels:", [
-    { label: "Low", action: () => handleOperation("contrast", "Low", () => applyContrast(0.5), showContrastOptions) },
-    { label: "Medium", action: () => handleOperation("contrast", "Medium", () => applyContrast(1.5), showContrastOptions) },
-    { label: "High", action: () => handleOperation("contrast", "High", () => applyContrast(2.0), showContrastOptions) },
-    { label: "❌ Clear", action: () => clearOperation("contrast", showContrastOptions) },
-    { label: "🔙 Back", action: showAvailableTools }
-  ]);
+function applyBrightness(intensity = "medium") {
+  let alpha = 1.0, beta;
+  switch (intensity) {
+    case "low": beta = 30; break;
+    case "medium": beta = 60; break;
+    case "high": beta = 90; break;
+    default: beta = 60;
+  }
+  let dst = new cv.Mat();
+  currentMat.convertTo(dst, -1, alpha, beta);
+  currentMat.delete();
+  currentMat = dst;
 }
-function getContrastAlpha(level) {
-  return level === "Low" ? 0.5 : level === "Medium" ? 1.5 : 2.0;
-}
-function applyContrast(alpha) {
+
+function applyContrast(intensity = "medium") {
+  let alpha;
+  switch (intensity) {
+    case "low": alpha = 1.3; break;
+    case "medium": alpha = 1.6; break;
+    case "high": alpha = 2.0; break;
+    default: alpha = 1.6;
+  }
   let dst = new cv.Mat();
   currentMat.convertTo(dst, -1, alpha, 0);
+  currentMat.delete();
   currentMat = dst;
-  updateCanvas(currentMat);
 }
 
-function showBrightnessOptions() {
-  appendMessage("🤖", "Brightness Levels:", [
-    { label: "Low", action: () => handleOperation("brightness", "Low", () => applyBrightness(-20), showBrightnessOptions) },
-    { label: "Medium", action: () => handleOperation("brightness", "Medium", () => applyBrightness(60), showBrightnessOptions) },
-    { label: "High", action: () => handleOperation("brightness", "High", () => applyBrightness(90), showBrightnessOptions) },
-    { label: "❌ Clear", action: () => clearOperation("brightness", showBrightnessOptions) },
-    { label: "🔙 Back", action: showAvailableTools }
-  ]);
-}
-function getBrightnessBeta(level) {
-  return level === "Low" ? -20 : level === "Medium" ? 60 : 90;
-}
-function applyBrightness(beta) {
+function applySharpen() {
   let dst = new cv.Mat();
-  currentMat.convertTo(dst, -1, 1, beta);
-  currentMat = dst;
-  updateCanvas(currentMat);
-}
-
-function showSharpenOptions() {
-  appendMessage("🤖", "Sharpen Levels:", [
-    { label: "Low", action: () => handleOperation("sharpen", "Low", () => applySharpen(1.2), showSharpenOptions) },
-    { label: "Medium", action: () => handleOperation("sharpen", "Medium", () => applySharpen(1.5), showSharpenOptions) },
-    { label: "High", action: () => handleOperation("sharpen", "High", () => applySharpen(2.0), showSharpenOptions) },
-    { label: "❌ Clear", action: () => clearOperation("sharpen", showSharpenOptions) },
-    { label: "🔙 Back", action: showAvailableTools }
-  ]);
-}
-function getSharpenStrength(level) {
-  return level === "Low" ? 1.2 : level === "Medium" ? 1.5 : 2.0;
-}
-function applySharpen(strength) {
-  let kernel = cv.matFromArray(3, 3, cv.CV_32F, [
-    0, -1, 0,
-    -1, 5 * strength, -1,
-    0, -1, 0
-  ]);
-  let dst = new cv.Mat();
-  cv.filter2D(currentMat, dst, cv.CV_8U, kernel);
-  currentMat = dst;
-  updateCanvas(currentMat);
+  let kernel = cv.matFromArray(3, 3, cv.CV_32F, [0, -1, 0, -1, 9, -1, 0, -1, 0]);
+  cv.filter2D(currentMat, dst, -1, kernel);
   kernel.delete();
-}
-
-function showFlipOptions() {
-  appendMessage("🤖", "Flip Options:", [
-    { label: "Horizontal", action: () => handleOperation("flipH", "Horizontal", () => applyFlip(1), showFlipOptions) },
-    { label: "Vertical", action: () => handleOperation("flipV", "Vertical", () => applyFlip(0), showFlipOptions) },
-    { label: "❌ Clear", action: () => {
-      clearOperation("flipH");
-      clearOperation("flipV", showFlipOptions);
-    }},
-    { label: "🔙 Back", action: showAvailableTools }
-  ]);
-}
-function applyFlip(code) {
-  let dst = new cv.Mat();
-  cv.flip(currentMat, dst, code);
+  currentMat.delete();
   currentMat = dst;
-  updateCanvas(currentMat);
 }
 
-function showCannyOptions() {
-  appendMessage("🤖", "Canny Edge:", [
-    { label: "Apply", action: () => handleOperation("canny", "Edge", applyCanny, showCannyOptions) },
-    { label: "❌ Clear", action: () => clearOperation("canny", showCannyOptions) },
-    { label: "🔙 Back", action: showAvailableTools }
-  ]);
+function applyGrayscale() {
+  let dst = new cv.Mat();
+  cv.cvtColor(currentMat, dst, cv.COLOR_RGBA2GRAY);
+  cv.cvtColor(dst, dst, cv.COLOR_GRAY2RGBA);
+  currentMat.delete();
+  currentMat = dst;
 }
+
+function applyFlip(direction = "horizontal") {
+  let dst = new cv.Mat();
+  let flipCode = direction === "vertical" ? 0 : 1;
+  cv.flip(currentMat, dst, flipCode);
+  currentMat.delete();
+  currentMat = dst;
+}
+
 function applyCanny() {
   let gray = new cv.Mat();
   let edges = new cv.Mat();
   cv.cvtColor(currentMat, gray, cv.COLOR_RGBA2GRAY);
-  cv.Canny(gray, edges, 50, 100);
-  cv.cvtColor(edges, currentMat, cv.COLOR_GRAY2RGBA);
-  updateCanvas(currentMat);
-  gray.delete(); edges.delete();
+  cv.Canny(gray, edges, 50, 150);
+  cv.cvtColor(edges, edges, cv.COLOR_GRAY2RGBA);
+  gray.delete();
+  currentMat.delete();
+  currentMat = edges;
 }
 
-function showGrayscaleOptions() {
-  appendMessage("🤖", "Grayscale Options:", [
-    { label: "Apply", action: () => handleOperation("grayscale", "On", applyGrayscale, showGrayscaleOptions) },
-    { label: "❌ Clear", action: () => clearOperation("grayscale", showGrayscaleOptions) },
-    { label: "🔙 Back", action: showAvailableTools }
-  ]);
-}
-function applyGrayscale() {
+function applySobel() {
+  let gray = new cv.Mat();
+  let gradX = new cv.Mat();
+  let gradY = new cv.Mat();
+  let absX = new cv.Mat();
+  let absY = new cv.Mat();
   let dst = new cv.Mat();
-  cv.cvtColor(currentMat, dst, cv.COLOR_RGBA2GRAY);
-  cv.cvtColor(dst, currentMat, cv.COLOR_GRAY2RGBA);
-  dst.delete();
-  updateCanvas(currentMat);
+
+  cv.cvtColor(currentMat, gray, cv.COLOR_RGBA2GRAY);
+  cv.Sobel(gray, gradX, cv.CV_16S, 1, 0);
+  cv.convertScaleAbs(gradX, absX);
+  cv.Sobel(gray, gradY, cv.CV_16S, 0, 1);
+  cv.convertScaleAbs(gradY, absY);
+  cv.addWeighted(absX, 0.5, absY, 0.5, 0, dst);
+  cv.cvtColor(dst, dst, cv.COLOR_GRAY2RGBA);
+
+  gray.delete(); gradX.delete(); gradY.delete(); absX.delete(); absY.delete();
+  currentMat.delete();
+  currentMat = dst;
 }
 
-// ---------- Prompt Submission ----------
-function submitImage() {
-  const prompt = document.getElementById("promptInput").value.toLowerCase();
-  const file = document.getElementById("imageInput").files[0];
-  if (!file || !originalMat) return alert("Please upload an image.");
-  if (!prompt) return alert("Please enter a prompt.");
+function applyPencilSketch() {
+  let gray = new cv.Mat();
+  let inv = new cv.Mat();
+  let blur = new cv.Mat();
+  let blend = new cv.Mat();
 
-  const formData = new FormData();
-  formData.append("image", file);
-  formData.append("prompt", prompt);
-  formData.append("format", "png");
+  cv.cvtColor(currentMat, gray, cv.COLOR_RGBA2GRAY);
+  cv.bitwise_not(gray, inv);
+  cv.GaussianBlur(inv, blur, new cv.Size(21, 21), 0);
+  cv.divide(gray, cv.bitwise_not(blur), blend, 256);
+  cv.cvtColor(blend, blend, cv.COLOR_GRAY2RGBA);
 
-  fetch("http://localhost:3000/edit-image", {
-    method: "POST",
-    body: formData,
-  })
-    .then((res) => res.blob())
-    .then((blob) => {
-      const img = new Image();
-      img.onload = () => {
-        canvas.width = img.width;
-        canvas.height = img.height;
-        ctx.drawImage(img, 0, 0);
-        let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        currentMat = cv.matFromImageData(imgData);
-        saveState();
-      };
-      img.src = URL.createObjectURL(blob);
-    })
-    .catch((err) => console.error("Error:", err));
+  gray.delete(); inv.delete(); blur.delete();
+  currentMat.delete();
+  currentMat = blend;
 }
 
-// ---------- Chat UI ----------
-function appendMessage(sender, text, buttons = []) {
-  if (lastToolMessage) lastToolMessage.remove();
-  const chatBody = document.getElementById("chatBody");
-  const message = document.createElement("div");
-  message.classList.add("message");
-  message.classList.add(sender === "🤖" ? "bot-message" : "user-message");
-  message.innerHTML = `<strong>${sender}</strong>: ${text}`;
-  chatBody.appendChild(message);
+// --- Operation Dispatcher ---
+function applyOperation(op) {
+  const { type, intensity, direction } = op;
 
-  if (buttons.length) {
-    const buttonContainer = document.createElement("div");
-    buttonContainer.classList.add("button-container");
-    buttonContainer.classList.add("tool-buttons-grid");
-    buttons.forEach(({ label, action }) => {
-      const button = document.createElement("button");
-      button.textContent = label;
-      button.onclick = action;
-      buttonContainer.appendChild(button);
-    });
-    message.appendChild(buttonContainer);
-    lastToolMessage = message;
+  switch (type) {
+    case "blur": handleBlur(intensity); break;
+    case "brightness": handleBrightness(intensity); break;
+    case "contrast": handleContrast(intensity); break;
+    case "sharpen": handleSharpen(); break;
+    case "grayscale": handleGrayscale(); break;
+    case "flip": handleFlip(direction); break;
+    case "canny": handleCanny(); break;
+    case "sobel": handleSobel(); break;
+    case "pencil": handlePencilSketch(); break;
+    default: appendMessage("🤖", `⚠️ Operation '${type}' not supported yet.`);
+  }
+}
+
+// --- Handlers for UI buttons ---
+function handleBlur(intensity) {
+  if (!originalMat) return alert("Upload an image first.");
+  if (appliedOperations.has("blur")) return alert("Blur already applied. Clear first.");
+  applyBlur(intensity);
+  appliedOperations.set("blur", intensity);
+  saveState(); updateCanvas(currentMat);
+  appendMessage("🤖", `Blur (${intensity}) applied.`);
+}
+
+function handleBrightness(intensity) {
+  if (!originalMat) return alert("Upload an image first.");
+  if (appliedOperations.has("brightness")) return alert("Brightness already applied. Clear first.");
+  applyBrightness(intensity);
+  appliedOperations.set("brightness", intensity);
+  saveState(); updateCanvas(currentMat);
+  appendMessage("🤖", `Brightness (${intensity}) applied.`);
+}
+
+function handleContrast(intensity) {
+  if (!originalMat) return alert("Upload an image first.");
+  if (appliedOperations.has("contrast")) return alert("Contrast already applied. Clear first.");
+  applyContrast(intensity);
+  appliedOperations.set("contrast", intensity);
+  saveState(); updateCanvas(currentMat);
+  appendMessage("🤖", `Contrast (${intensity}) applied.`);
+}
+
+function handleSharpen() {
+  if (!originalMat) return alert("Upload an image first.");
+  if (appliedOperations.has("sharpen")) return alert("Sharpen already applied. Clear first.");
+  applySharpen();
+  appliedOperations.set("sharpen", true);
+  saveState(); updateCanvas(currentMat);
+  appendMessage("🤖", "Sharpen applied.");
+}
+
+function handleGrayscale() {
+  if (!originalMat) return alert("Upload an image first.");
+  if (appliedOperations.has("grayscale")) return alert("Grayscale already applied. Clear first.");
+  applyGrayscale();
+  appliedOperations.set("grayscale", true);
+  saveState(); updateCanvas(currentMat);
+  appendMessage("🤖", "Grayscale applied.");
+}
+
+function handleFlip(direction) {
+  if (!originalMat) return alert("Upload an image first.");
+  const key = direction === "horizontal" ? "flipH" : "flipV";
+  if (appliedOperations.has(key)) return alert(`Flip (${direction}) already applied. Clear first.`);
+  applyFlip(direction);
+  appliedOperations.set(key, true);
+  saveState(); updateCanvas(currentMat);
+  appendMessage("🤖", `Flip (${direction}) applied.`);
+}
+
+function handleCanny() {
+  if (!originalMat) return alert("Upload an image first.");
+  applyCanny();
+  appliedOperations.set("canny", true);
+  saveState(); updateCanvas(currentMat);
+  appendMessage("🤖", "Canny edge detection applied.");
+}
+
+function handleSobel() {
+  if (!originalMat) return alert("Upload an image first.");
+  applySobel();
+  appliedOperations.set("sobel", true);
+  saveState(); updateCanvas(currentMat);
+  appendMessage("🤖", "Sobel edge detection applied.");
+}
+
+function handlePencilSketch() {
+  if (!originalMat) return alert("Upload an image first.");
+  applyPencilSketch();
+  appliedOperations.set("pencil", true);
+  saveState(); updateCanvas(currentMat);
+  appendMessage("🤖", "Pencil sketch effect applied.");
+}
+
+
+// --- Clear Operation ---
+
+function clearFreehandMask() {
+  if (!preBlurSnapshot) {
+    appendMessage("🤖", "No freehand blur to clear.");
+    return;
   }
 
+  currentMat.delete();
+  currentMat = preBlurSnapshot.clone();
+  preBlurSnapshot.delete();
+  preBlurSnapshot = null;
+
+  blurMask.setTo(new cv.Scalar(0)); // Clear the mask
+  appliedOperations.delete("freehandBlur");
+
+  updateCanvas(currentMat);
+  appendMessage("🤖", "All freehand blurs cleared.");
+}
+
+
+
+function clearSingleOperation(type) {
+  if (!originalMat) return alert("Upload an image first.");
+
+  currentMat.delete();
+  currentMat = originalMat.clone();
+
+  if (type === "flip") {
+    appliedOperations.delete("flipH");
+    appliedOperations.delete("flipV");
+  } else {
+    appliedOperations.delete(type);
+  }
+
+  const operationsToReapply = Array.from(appliedOperations.entries());
+  appliedOperations.clear();
+
+  for (const [opType, value] of operationsToReapply) {
+    if (opType === "flipH") applyOperation({ type: "flip", direction: "horizontal" });
+    else if (opType === "flipV") applyOperation({ type: "flip", direction: "vertical" });
+    else if (opType === "freehandBlur") {
+      // skip reapplying freehand blur
+      continue;
+    }
+    else applyOperation({ type: opType, intensity: value });
+  }
+
+  updateCanvas(currentMat);
+  if (type === "freehandBlur") {
+    initBlurMask(); // <-- Reset the mask
+    appendMessage("🤖", "Freehand blur cleared.");
+  } else {
+    appendMessage("🤖", `${type} cleared.`);
+  }
+}
+
+
+
+// --- Chat Prompt to Backend ---
+async function submitPrompt() {
+  if (!cvReady) return alert("OpenCV.js is not ready yet.");
+  const prompt = document.getElementById("promptInput").value.trim();
+  if (!prompt) return alert("Please enter a prompt.");
+  if (!originalMat) return alert("Please upload an image.");
+  appendMessage("🧑", prompt);
+  appendMessage("🤖", "Processing your prompt...");
+
+  try {
+    const res = await fetch("http://localhost:3000/generate-operations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    });
+
+    if (!res.ok) throw new Error("Backend error");
+    const data = await res.json();
+
+    if (!data.operations) {
+      appendMessage("🤖", "❌ Invalid operations returned from backend.");
+      return;
+    }
+
+    currentMat.delete();
+    currentMat = originalMat.clone();
+    appliedOperations.clear();
+
+    for (const op of data.operations) {
+      await applyOperation(op);
+    }
+    updateCanvas(currentMat);
+    saveState();
+
+  } catch (e) {
+    console.error(e);
+    appendMessage("🤖", "❌ Failed to get operations from backend.");
+  }
+}
+
+// --- Chat UI ---
+function appendMessage(sender, text) {
+  const chatBody = document.getElementById("chatBody");
+  const message = document.createElement("div");
+  message.classList.add("message", sender === "🤖" ? "bot-message" : "user-message");
+  message.innerHTML = `<strong>${sender}</strong>: ${text}`;
+  chatBody.appendChild(message);
   chatBody.scrollTop = chatBody.scrollHeight;
 }
 
-function appendWarningMessage(text) {
-  const chatBody = document.getElementById("chatBody");
-  const warning = document.createElement("div");
-  warning.classList.add("message", "bot-message");
-  warning.innerHTML = `<strong>🤖</strong>: ${text}`;
-  chatBody.appendChild(warning);
-  chatBody.scrollTop = chatBody.scrollHeight;
+// --- Downloads ---
+
+function downloadPNG() {
+  const link = document.createElement("a");
+  link.download = "edited-image.png";
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
+
+
+function downloadPDF() {
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF();
+
+  const imgData = canvas.toDataURL("image/png");
+  const img = new Image();
+  img.src = imgData;
+
+  img.onload = () => {
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const pdfHeight = (img.height * pdfWidth) / img.width;
+    pdf.addImage(img, "PNG", 0, 0, pdfWidth, pdfHeight);
+    pdf.save("edited_image.pdf");
+  };
+
+  img.onerror = () => {
+    alert("Failed to load image for PDF.");
+  };
+}
+
+
+
+// --- Toggle Tool Sub-options ---
+function toggleSubOptions(id) {
+  document.querySelectorAll('.sub-options').forEach(el => {
+    if (el.id !== id) el.style.display = 'none';
+  });
+  const el = document.getElementById(id);
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function hideSubOptions(id) {
+  document.getElementById(id).style.display = 'none';
 }
