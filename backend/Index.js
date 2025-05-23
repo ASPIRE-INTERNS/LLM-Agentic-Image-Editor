@@ -1,44 +1,48 @@
 const express = require("express");
 const cors = require("cors");
-const multer = require("multer");
-const fs = require("fs");
 const { spawn } = require("child_process");
-const path = require("path");
 
 const app = express();
 const port = 3000;
 
 app.use(cors());
-const upload = multer({ dest: "uploads/" });
+app.use(express.json());
 
-app.post("/edit-image", upload.single("image"), (req, res) => {
-  const imagePath = req.file.path;
+// POST /generate-operations: receives prompt, returns JSON operations
+app.post("/generate-operations", (req, res) => {
   const prompt = req.body.prompt;
-  const format = req.body.format || "png";
 
-  const py = spawn("python", ["process_image.py", imagePath, prompt, format]);
+  if (!prompt) {
+    return res.status(400).json({ error: "Prompt is required" });
+  }
 
-  let data = [];
-  py.stdout.on("data", chunk => data.push(chunk));
+  const python = spawn("python", ["llama_service.py", prompt]);
 
-  py.stderr.on("data", err => console.error("Python :", err.toString()));
+  let output = "";
 
-  py.on("close", code => {
-    const result = Buffer.concat(data);
-    const filename = format === "pdf" ? "edited_image.pdf" : "edited_image.png";
-    const mimeType = format === "pdf" ? "application/pdf" : "image/png";
+  python.stdout.on("data", (data) => {
+    output += data.toString();
+  });
 
-    res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
-    res.setHeader("Content-Type", mimeType);
-    res.send(result);
+  python.stderr.on("data", (data) => {
+    console.error("❌ Python error:", data.toString());
+  });
 
-    fs.unlink(imagePath, () => {}); 
+  python.on("close", (code) => {
+    console.log("🔧 Raw output from Python:");
+    console.log(output); // <-- Log raw output before parsing
+
+    try {
+      const parsed = JSON.parse(output);
+      console.log("✅ Parsed JSON:", JSON.stringify(parsed, null, 2)); // Pretty print
+      res.json(parsed);
+    } catch (err) {
+      console.error("❌ Failed to parse JSON from llama_service.py:", err);
+      res.status(500).json({ error: "Invalid JSON from Python script" });
+    }
   });
 });
 
 app.listen(port, () => {
   console.log(`🚀 Server running at http://localhost:${port}`);
 });
-
-
-
